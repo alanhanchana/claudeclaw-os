@@ -5,6 +5,7 @@
  * os.platform() checks everywhere, route through these helpers.
  */
 
+import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { execSync, spawn } from 'child_process';
@@ -114,6 +115,36 @@ export async function findProcessesByPattern(pattern: string): Promise<number[]>
       resolve([]);
     }
   });
+}
+
+/**
+ * Best-effort lookup of a PID's command line. Returns '' if the process
+ * is gone or unreadable. Used to verify a PID actually belongs to the
+ * process we think it does before killing it (PID reuse safety).
+ */
+export function getProcessCommand(pid: number): string {
+  if (!Number.isFinite(pid) || pid <= 0) return '';
+  try {
+    if (IS_LINUX) {
+      const raw = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf-8');
+      return raw.replace(/\0/g, ' ').trim();
+    }
+    if (IS_MACOS) {
+      const out = execSync(`ps -p ${pid} -o command=`, { stdio: 'pipe', encoding: 'utf-8' });
+      return out.trim();
+    }
+    if (IS_WINDOWS) {
+      const out = execSync(
+        `wmic process where ProcessId=${pid} get CommandLine /value`,
+        { stdio: 'pipe', encoding: 'utf-8' },
+      );
+      const line = out.split(/\r?\n/).map((s) => s.trim()).find((s) => s.startsWith('CommandLine='));
+      return line ? line.slice('CommandLine='.length) : '';
+    }
+  } catch {
+    return '';
+  }
+  return '';
 }
 
 /**

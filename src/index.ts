@@ -17,7 +17,7 @@ import { initOAuthHealthCheck } from './oauth-health.js';
 import { initOrchestrator } from './orchestrator.js';
 import { initScheduler } from './scheduler.js';
 import { setTelegramConnected, setBotInfo } from './state.js';
-import { getVenvPython, killProcess } from './platform.js';
+import { getVenvPython, isProcessAlive, getProcessCommand } from './platform.js';
 
 // Parse --agent flag
 const agentFlagIndex = process.argv.indexOf('--agent');
@@ -92,8 +92,19 @@ function acquireLock(): void {
     if (fs.existsSync(PID_FILE)) {
       const old = parseInt(fs.readFileSync(PID_FILE, 'utf8').trim(), 10);
       if (!isNaN(old) && old !== process.pid) {
-        killProcess(old);
-        try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000); } catch { /* ok */ }
+        if (isProcessAlive(old)) {
+          const cmd = getProcessCommand(old);
+          const looksLikeUs = /\b(dist[\\/]index\.js|src[\\/]index\.ts)\b/.test(cmd);
+          if (looksLikeUs) {
+            const label = AGENT_ID === 'main' ? 'ClaudeClaw' : `agent "${AGENT_ID}"`;
+            logger.error(
+              { pid: old, cmd },
+              `Another ${label} instance is already running (PID ${old}). Stop it first, or delete ${PID_FILE} if you're sure it's stale.`,
+            );
+            process.exit(1);
+          }
+          logger.warn({ pid: old, cmd }, 'Stale PID file points to a live non-ClaudeClaw process; ignoring');
+        }
       }
     }
   } catch { /* ignore */ }
