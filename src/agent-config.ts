@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import yaml from 'js-yaml';
 
-import { CLAUDECLAW_CONFIG, PROJECT_ROOT, STORE_DIR } from './config.js';
+import { CLAUDECLAW_CONFIG, PROJECT_ROOT, STORE_DIR, SHARED_CLAUDE_DIR } from './config.js';
 import { readEnvFile } from './env.js';
 import {
   ProviderConfig,
@@ -119,6 +119,53 @@ export function ensureAgentsMdSymlink(dir: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** Subdirs of a shared `.claude/` that get bridged into every agent. */
+export const SHARED_CAPABILITY_DIRS = ['skills', 'agents'] as const;
+
+/** True if `p` is a symlink (incl. a broken one). */
+function isSymlink(p: string): boolean {
+  try {
+    return fs.lstatSync(p).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Bridge the shared Claude-config capability dirs (skills, subagents) into an
+ * agent's own `.claude/` via symlink, so the SDK's 'project' settingSource
+ * resolves them — giving every agent the same skills + subagents as the
+ * terminal session. Mirrors {@link ensureAgentsMdSymlink}: idempotent and
+ * best-effort. Skips a subdir that's missing at the source or already present
+ * at the target (so a hand-curated dir or prior link is never clobbered), and
+ * never touches `.claude/settings.json`. No-op when `sharedDir` is empty or
+ * absent, so claudeclaw stays usable standalone.
+ *
+ * @returns the subdir names that were newly linked (for logging/tests).
+ */
+export function ensureSharedCapabilitySymlinks(
+  agentDir: string,
+  sharedDir: string = SHARED_CLAUDE_DIR,
+): string[] {
+  if (!sharedDir || !fs.existsSync(sharedDir)) return [];
+  const claudeDir = path.join(agentDir, '.claude');
+  const linked: string[] = [];
+  for (const sub of SHARED_CAPABILITY_DIRS) {
+    const src = path.join(sharedDir, sub);
+    if (!fs.existsSync(src)) continue;
+    const dst = path.join(claudeDir, sub);
+    if (fs.existsSync(dst) || isSymlink(dst)) continue;
+    try {
+      fs.mkdirSync(claudeDir, { recursive: true });
+      fs.symlinkSync(src, dst);
+      linked.push(sub);
+    } catch {
+      // best-effort, like ensureAgentsMdSymlink
+    }
+  }
+  return linked;
 }
 
 /**
