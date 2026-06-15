@@ -481,6 +481,13 @@ function generateSystemdUnit(agentId: string): string {
   const unitPath = path.join(unitDir, `${serviceName}.service`);
 
   const nodePath = process.execPath;
+  // The Claude Code subprocess is spawned via `spawn('node', ...)`, so the
+  // unit needs PATH/HOME (systemd user units don't inherit the login shell's).
+  // Without PATH the agent fails at query time with `spawn node ENOENT`.
+  const servicePath = `${path.dirname(nodePath)}:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`;
+  // Optional MCP secrets (KARAKEEP_API_KEY, TRANSCRIPTAPI_API_KEY, …) consumed
+  // by loadMcpServers' `${VAR}` expansion. `-` = don't fail if the file is absent.
+  const secretsFile = path.join(CLAUDECLAW_CONFIG, 'mcp-secrets.env');
 
   const unit = `[Unit]
 Description=ClaudeClaw Agent: ${agentId}
@@ -491,6 +498,9 @@ Type=simple
 ExecStart=${nodePath} ${PROJECT_ROOT}/dist/index.js --agent ${agentId}
 WorkingDirectory=${PROJECT_ROOT}
 Environment=NODE_ENV=production
+Environment=PATH=${servicePath}
+Environment=HOME=${os.homedir()}
+EnvironmentFile=-${secretsFile}
 Restart=always
 RestartSec=10
 
