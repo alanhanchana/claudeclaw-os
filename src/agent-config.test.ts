@@ -15,6 +15,7 @@ vi.mock('./config.js', () => {
     get CLAUDECLAW_CONFIG() { return claudeclawConfig; },
     get PROJECT_ROOT() { return projectRoot; },
     get STORE_DIR() { return storeDir; },
+    get SHARED_CLAUDE_DIR() { return ''; },
   };
 });
 
@@ -318,5 +319,65 @@ describe('provider config', () => {
     expect(sessionBelongsToProvider(geminiSession, { type: 'codex' })).toBe(false);
     expect(decodeProviderSession({ type: 'codex' }, geminiSession)).toBeUndefined();
     expect(decodeProviderSession({ type: 'gemini' }, geminiSession)).toBe('abc');
+  });
+});
+
+describe('ensureSharedCapabilitySymlinks', () => {
+  let sharedDir: string;
+  let agentDir: string;
+
+  beforeEach(() => {
+    sharedDir = path.join(tmpRoot, 'shared', '.claude');
+    agentDir = path.join(tmpRoot, 'agents', 'ventures');
+    fs.mkdirSync(path.join(sharedDir, 'skills', 'copywriting'), { recursive: true });
+    fs.mkdirSync(path.join(sharedDir, 'agents'), { recursive: true });
+    fs.writeFileSync(path.join(sharedDir, 'agents', 'technical-writer.md'), '# tw', 'utf-8');
+    fs.mkdirSync(agentDir, { recursive: true });
+  });
+
+  it('symlinks skills + agents into the agent .claude/ and resolves through them', async () => {
+    const { ensureSharedCapabilitySymlinks } = await import('./agent-config.js');
+    const linked = ensureSharedCapabilitySymlinks(agentDir, sharedDir);
+
+    expect(linked.sort()).toEqual(['agents', 'skills']);
+    for (const sub of ['skills', 'agents']) {
+      const dst = path.join(agentDir, '.claude', sub);
+      expect(fs.lstatSync(dst).isSymbolicLink()).toBe(true);
+    }
+    // Symlink resolves to the real shared content.
+    expect(fs.existsSync(path.join(agentDir, '.claude', 'skills', 'copywriting'))).toBe(true);
+    expect(fs.readFileSync(path.join(agentDir, '.claude', 'agents', 'technical-writer.md'), 'utf-8')).toBe('# tw');
+  });
+
+  it('is idempotent and never clobbers an existing per-agent settings.json', async () => {
+    const { ensureSharedCapabilitySymlinks } = await import('./agent-config.js');
+    // Pre-existing per-agent settings (e.g. Librarian's Karakeep MCP key).
+    fs.mkdirSync(path.join(agentDir, '.claude'), { recursive: true });
+    fs.writeFileSync(path.join(agentDir, '.claude', 'settings.json'), '{"mcpServers":{}}', 'utf-8');
+
+    ensureSharedCapabilitySymlinks(agentDir, sharedDir);
+    const second = ensureSharedCapabilitySymlinks(agentDir, sharedDir);
+
+    expect(second).toEqual([]); // nothing new on the second run
+    expect(fs.readFileSync(path.join(agentDir, '.claude', 'settings.json'), 'utf-8')).toBe('{"mcpServers":{}}');
+  });
+
+  it('does not clobber a hand-curated real dir at the target', async () => {
+    const { ensureSharedCapabilitySymlinks } = await import('./agent-config.js');
+    // Agent already has a curated skills/ dir — leave it alone, only link agents/.
+    fs.mkdirSync(path.join(agentDir, '.claude', 'skills', 'custom-only'), { recursive: true });
+
+    const linked = ensureSharedCapabilitySymlinks(agentDir, sharedDir);
+
+    expect(linked).toEqual(['agents']);
+    expect(fs.lstatSync(path.join(agentDir, '.claude', 'skills')).isDirectory()).toBe(true);
+    expect(fs.lstatSync(path.join(agentDir, '.claude', 'skills')).isSymbolicLink()).toBe(false);
+  });
+
+  it('is a clean no-op when the shared dir is empty or missing', async () => {
+    const { ensureSharedCapabilitySymlinks } = await import('./agent-config.js');
+    expect(ensureSharedCapabilitySymlinks(agentDir, '')).toEqual([]);
+    expect(ensureSharedCapabilitySymlinks(agentDir, path.join(tmpRoot, 'does-not-exist'))).toEqual([]);
+    expect(fs.existsSync(path.join(agentDir, '.claude'))).toBe(false);
   });
 });

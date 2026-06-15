@@ -1,3 +1,4 @@
+import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -40,6 +41,7 @@ const envConfig = readEnvFile([
   'WARROOM_PORT',
   'STREAM_STRATEGY',
   'ENABLE_ACP',
+  'SHARED_CLAUDE_DIR',
 ]);
 
 // ── Multi-agent support ──────────────────────────────────────────────
@@ -138,6 +140,25 @@ const rawConfigDir =
  * Defaults to ~/.claudeclaw. Set CLAUDECLAW_CONFIG in .env or environment to override.
  */
 export const CLAUDECLAW_CONFIG = expandHome(rawConfigDir);
+
+// ── Shared Claude capability dir ──────────────────────────────────────
+// A .claude/ directory whose skills/ + agents/ subdirs are symlinked into
+// every created agent, so agents inherit the same skills and subagents as
+// the terminal session (the SDK's 'project' settingSource resolves the
+// agent's own .claude/, not a shared repo, so without this the agent only
+// sees its own role files + user-scope ~/.claude). Set SHARED_CLAUDE_DIR in
+// .env to point at it; if unset, falls back to ~/ignition-os/.claude when
+// that exists, else stays empty — an empty value is a clean no-op, so
+// claudeclaw still works standalone.
+function resolveSharedClaudeDir(): string {
+  const raw = process.env.SHARED_CLAUDE_DIR || envConfig.SHARED_CLAUDE_DIR;
+  if (raw && raw.trim()) return expandHome(raw.trim());
+  const fallback = expandHome('~/ignition-os/.claude');
+  return fs.existsSync(fallback) ? fallback : '';
+}
+
+/** Absolute path to the shared capability `.claude/` dir, or '' if none. */
+export const SHARED_CLAUDE_DIR = resolveSharedClaudeDir();
 
 // Telegram limits
 export const MAX_MESSAGE_LENGTH = 4096;

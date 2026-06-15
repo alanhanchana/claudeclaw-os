@@ -6,7 +6,7 @@ import { execSync, spawn } from 'child_process';
 import yaml from 'js-yaml';
 
 import { CLAUDECLAW_CONFIG, PROJECT_ROOT, STORE_DIR } from './config.js';
-import { ensureAgentsMdSymlink, listAgentIds, loadAgentConfig, resolveAgentDir, refreshWarRoomRoster } from './agent-config.js';
+import { ensureAgentsMdSymlink, ensureSharedCapabilitySymlinks, listAgentIds, loadAgentConfig, resolveAgentDir, refreshWarRoomRoster } from './agent-config.js';
 import { refreshAgentRegistry } from './orchestrator.js';
 import { atomicEnvWrite } from './env-write.js';
 import { logger } from './logger.js';
@@ -300,6 +300,14 @@ export async function createAgent(opts: CreateAgentOpts): Promise<CreateAgentRes
       ensureAgentsMdSymlink(agentDir);
       break;
     }
+  }
+
+  // Bridge shared skills + subagents into the agent's .claude/ so it inherits
+  // the same capabilities as the terminal session (no-op when SHARED_CLAUDE_DIR
+  // is unset/absent). Same self-provisioning fix-class as the PATH/MCP bake-ins.
+  const linkedCaps = ensureSharedCapabilitySymlinks(agentDir);
+  if (linkedCaps.length) {
+    logger.info({ agentId: id, linked: linkedCaps }, 'Linked shared capability dirs into agent .claude/');
   }
 
   // Create agent.yaml
