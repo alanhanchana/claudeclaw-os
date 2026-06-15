@@ -352,15 +352,20 @@ function isLockedDownToolPolicy(input: AgentTurnInput): boolean {
 
 function toAcpMcpServers(mcpServers?: AgentTurnInput['mcpServers']): acp.McpServer[] {
   if (!mcpServers) return [];
-  return Object.entries(mcpServers).map(([name, cfg]) => ({
-    name,
-    command: cfg.command,
-    args: cfg.args ?? [],
-    env: Object.entries(cfg.env ?? {}).map(([envName, value]) => ({
-      name: envName,
-      value,
-    })),
-  }));
+  // ACP's stdio MCP transport only carries command-based servers; remote
+  // (http/sse) servers are handled by the Claude SDK path, so skip them here.
+  return Object.entries(mcpServers)
+    .filter((entry): entry is [string, { command: string; args?: string[]; env?: Record<string, string> }] =>
+      'command' in entry[1])
+    .map(([name, cfg]) => ({
+      name,
+      command: cfg.command,
+      args: cfg.args ?? [],
+      env: Object.entries(cfg.env ?? {}).map(([envName, value]) => ({
+        name: envName,
+        value,
+      })),
+    }));
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {

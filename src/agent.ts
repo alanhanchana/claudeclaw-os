@@ -30,42 +30,90 @@ export interface McpStdioConfig {
   env?: Record<string, string>;
 }
 
+/** Remote MCP server reached over HTTP/SSE (e.g. Cloudflare, transcriptapi). */
+export interface McpHttpConfig {
+  type: 'http' | 'sse';
+  url: string;
+  headers?: Record<string, string>;
+}
+
+/** An MCP server is either a local stdio process or a remote HTTP/SSE endpoint. */
+export type McpServerConfig = McpStdioConfig | McpHttpConfig;
+
+/** Expand `${VAR}` references in a string against the current process env. */
+function expandEnvVars(value: string): string {
+  return value.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, name) => process.env[name] ?? '');
+}
+
+function expandRecord(rec: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(Object.entries(rec).map(([k, v]) => [k, expandEnvVars(String(v))]));
+}
+
+/** Parse one raw MCP server entry into a stdio or http/sse config (null if unrecognized). */
+function parseMcpServer(cfg: Record<string, unknown>): McpServerConfig | null {
+  // Remote server: identified by a `url` (type defaults to http).
+  if (typeof cfg.url === 'string') {
+    const out: McpHttpConfig = {
+      type: cfg.type === 'sse' ? 'sse' : 'http',
+      url: expandEnvVars(cfg.url),
+    };
+    if (cfg.headers && typeof cfg.headers === 'object') {
+      out.headers = expandRecord(cfg.headers as Record<string, string>);
+    }
+    return out;
+  }
+  // Local server: identified by a `command`.
+  if (typeof cfg.command === 'string') {
+    const out: McpStdioConfig = { command: cfg.command };
+    if (Array.isArray(cfg.args)) out.args = cfg.args as string[];
+    if (cfg.env && typeof cfg.env === 'object') {
+      out.env = expandRecord(cfg.env as Record<string, string>);
+    }
+    return out;
+  }
+  return null;
+}
+
 /**
- * Merge MCP server configs from user settings (~/.claude/settings.json) and
- * project settings (.claude/settings.json in cwd), optionally filtered by
- * an allowlist (e.g. from an agent's agent.yaml `mcp_servers` field).
+ * Merge MCP server configs from the user and project scopes, optionally
+ * filtered by an allowlist (e.g. an agent's agent.yaml `mcp_servers` field).
+ *
+ * Sources, later wins on a name collision:
+ *   1. ~/.claude/settings.json      (user settings, `mcpServers` key)
+ *   2. <cwd>/.claude/settings.json  (project settings)
+ *   3. ~/.mcp.json                  (user-scope native MCP file)
+ *   4. <cwd>/.mcp.json              (project native MCP file)
+ *
+ * `projectCwd` lets callers (e.g. the voice bridge) target a specific
+ * sub-agent's files without relying on the module-level `agentCwd`.
+ *
+ * Both stdio (`command`) and remote (`type: http|sse` + `url`) servers are
+ * supported; `${VAR}` references in env values, headers, and urls are
+ * expanded against the current process environment.
  *
  * Exported so the voice bridge can reuse the exact same loader the text
  * bot uses — keeping behavior consistent across channels.
  */
-export function loadMcpServers(allowlist?: string[], projectCwd?: string): Record<string, McpStdioConfig> {
-  const merged: Record<string, McpStdioConfig> = {};
+export function loadMcpServers(allowlist?: string[], projectCwd?: string): Record<string, McpServerConfig> {
+  const merged: Record<string, McpServerConfig> = {};
+  const cwd = projectCwd ?? agentCwd ?? PROJECT_ROOT;
+  const home = process.env.HOME ?? '/tmp';
 
-  // Load from project settings (.claude/settings.json in cwd). `projectCwd`
-  // lets callers (e.g. the voice bridge) target a specific sub-agent's
-  // settings file without needing the module-level `agentCwd` to be set.
-  const projectSettings = path.join(projectCwd ?? agentCwd ?? PROJECT_ROOT, '.claude', 'settings.json');
-  // Load from user settings (~/.claude/settings.json)
-  const userSettings = path.join(
-    process.env.HOME ?? '/tmp',
-    '.claude',
-    'settings.json',
-  );
+  const sources = [
+    path.join(home, '.claude', 'settings.json'),
+    path.join(cwd, '.claude', 'settings.json'),
+    path.join(home, '.mcp.json'),
+    path.join(cwd, '.mcp.json'),
+  ];
 
-  for (const file of [userSettings, projectSettings]) {
+  for (const file of sources) {
     try {
       const raw = JSON.parse(fs.readFileSync(file, 'utf-8'));
       const servers = raw?.mcpServers;
       if (servers && typeof servers === 'object') {
         for (const [name, config] of Object.entries(servers)) {
-          const cfg = config as Record<string, unknown>;
-          if (cfg.command && typeof cfg.command === 'string') {
-            merged[name] = {
-              command: cfg.command,
-              ...(cfg.args ? { args: cfg.args as string[] } : {}),
-              ...(cfg.env ? { env: cfg.env as Record<string, string> } : {}),
-            };
-          }
+          const parsed = parseMcpServer(config as Record<string, unknown>);
+          if (parsed) merged[name] = parsed;
         }
       }
     } catch {
