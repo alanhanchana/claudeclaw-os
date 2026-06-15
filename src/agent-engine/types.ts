@@ -6,6 +6,16 @@ export interface McpStdioConfig {
   env?: Record<string, string>;
 }
 
+/** Remote MCP server reached over HTTP/SSE (e.g. Cloudflare, transcriptapi). */
+export interface McpHttpConfig {
+  type: 'http' | 'sse';
+  url: string;
+  headers?: Record<string, string>;
+}
+
+/** An MCP server is either a local stdio process or a remote HTTP/SSE endpoint. */
+export type McpServerConfig = McpStdioConfig | McpHttpConfig;
+
 export interface AgentEngineUsage {
   inputTokens: number;
   outputTokens: number;
@@ -45,7 +55,7 @@ export interface AgentTurnInput {
   allowDangerouslySkipPermissions?: boolean;
   allowedTools?: string[];
   disallowedTools?: string[];
-  mcpServers?: Record<string, McpStdioConfig>;
+  mcpServers?: Record<string, McpServerConfig>;
   abortController?: AbortController;
   env?: Record<string, string | undefined>;
   settingSources?: string[];
