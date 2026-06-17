@@ -86,6 +86,11 @@ export interface AgentConfig {
   /** Display name shown in the meeting ("Your Agent wants to join"). Falls
    *  back to the agent's name or id with first letter capitalized. */
   meetBotName?: string;
+  /** Context scope. 'full' loads ~/.claude personal context + project; 'capabilities'
+   *  loads project only — skills/subagents (via the bridged .claude) and MCP (via the
+   *  home-based loader) still resolve, but ~/.claude/CLAUDE.md does not. Unset = 'full'
+   *  (back-compat). Maps to settingSources: full → ['project','user'], capabilities → ['project']. */
+  contextScope?: 'full' | 'capabilities';
 }
 
 /**
@@ -235,6 +240,8 @@ export function loadAgentConfig(agentId: string): AgentConfig {
   const warroomTools = raw['warroom_tools'] as string[] | undefined;
   const meetVoiceId = typeof raw['meet_voice_id'] === 'string' ? (raw['meet_voice_id'] as string) : undefined;
   const meetBotName = typeof raw['meet_bot_name'] === 'string' ? (raw['meet_bot_name'] as string) : undefined;
+  const contextScope = raw['context_scope'] === 'capabilities' ? 'capabilities'
+    : raw['context_scope'] === 'full' ? 'full' : undefined;
 
   return {
     name,
@@ -248,6 +255,7 @@ export function loadAgentConfig(agentId: string): AgentConfig {
     obsidian,
     meetVoiceId,
     meetBotName,
+    contextScope,
   };
 }
 
