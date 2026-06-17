@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 
-import { AGENT_MAX_TURNS, PROJECT_ROOT, agentCwd } from './config.js';
+import { AGENT_MAX_TURNS, PROJECT_ROOT, agentCwd, agentContextScope } from './config.js';
 import { readEnvFile } from './env.js';
 import { classifyError, AgentError } from './errors.js';
 import { logger } from './logger.js';
@@ -282,7 +282,7 @@ export async function runAgent(
       provider,
       sessionId: providerSessionId,
       cwd: agentCwd ?? PROJECT_ROOT,
-      settingSources: ['project', 'user'],
+      settingSources: agentContextScope === 'capabilities' ? ['project'] : ['project', 'user'],
       permissionMode: 'bypassPermissions',
       allowDangerouslySkipPermissions: effectiveSkipPermissions(provider),
       ...(AGENT_MAX_TURNS > 0 ? { maxTurns: AGENT_MAX_TURNS } : {}),

@@ -55,6 +55,7 @@ export let agentProvider: ProviderConfig | undefined; // from agent.yaml/main-co
 export let agentObsidianConfig: { vault: string; folders: string[]; readOnly?: string[] } | undefined;
 export let agentSystemPrompt: string | undefined; // loaded from agents/{id}/CLAUDE.md
 export let agentMcpAllowlist: string[] | undefined; // from agent.yaml mcp_servers
+export let agentContextScope: 'full' | 'capabilities' | undefined; // from agent.yaml context_scope; undefined = full
 
 export function setAgentOverrides(opts: {
   agentId: string;
@@ -65,6 +66,7 @@ export function setAgentOverrides(opts: {
   obsidian?: { vault: string; folders: string[]; readOnly?: string[] };
   systemPrompt?: string;
   mcpServers?: string[];
+  contextScope?: 'full' | 'capabilities';
 }): void {
   AGENT_ID = opts.agentId;
   activeBotToken = opts.botToken;
@@ -74,6 +76,7 @@ export function setAgentOverrides(opts: {
   agentObsidianConfig = opts.obsidian;
   agentSystemPrompt = opts.systemPrompt;
   agentMcpAllowlist = opts.mcpServers;
+  agentContextScope = opts.contextScope;
 }
 
 /** Update just the system prompt (CLAUDE.md content). Used by the
